@@ -17,6 +17,7 @@ function ShiftsManager() {
     // Get start of week date
     function getStartOfWeek(date) {
         const d = new Date(date);
+        d.setHours(0, 0, 0, 0); // Set to start of day
         const day = d.getDay();
         const diff = d.getDate() - day + (day === 0 ? -6 : 1);
         return new Date(d.setDate(diff));
@@ -46,8 +47,8 @@ function ShiftsManager() {
         try {
             const endDate = new Date(selectedWeek);
             endDate.setDate(endDate.getDate() + 6);
+            endDate.setHours(23, 59, 59, 999); // Set to end of day
             
-            // Add console logs to debug date ranges
             console.log('Fetching shifts between:', {
                 start: selectedWeek.toISOString(),
                 end: endDate.toISOString()
@@ -60,7 +61,7 @@ function ShiftsManager() {
             
             const response = await fetch(url);
             const data = await response.json();
-            console.log('Fetched shifts:', data); // Log the fetched data
+            console.log('Fetched shifts:', data);
             setShifts(data);
         } catch (error) {
             console.error('Error fetching shifts:', error);
@@ -102,17 +103,14 @@ function ShiftsManager() {
     const handleAddShift = async (e) => {
         e.preventDefault();
         try {
-            // Log the initial form data
             console.log('Form data before processing:', newShift);
 
-            // Create a properly formatted shift object
             const shiftData = {
                 employee_id: parseInt(newShift.employee_id),
                 punch_in: new Date(newShift.punch_in).toISOString(),
                 punch_out: new Date(newShift.punch_out).toISOString()
             };
 
-            // Log the processed data being sent to server
             console.log('Data being sent to server:', shiftData);
 
             const response = await fetch('http://localhost:8080/api/shifts', {
@@ -123,20 +121,20 @@ function ShiftsManager() {
                 body: JSON.stringify(shiftData),
             });
             
-            // Log the response status
             console.log('Server response status:', response.status);
 
             if (response.ok) {
                 const data = await response.json();
                 console.log('Server response data:', data);
                 
-                // Set selectedWeek to the week containing the new shift
+                // Update selected week to show the new shift
                 const shiftDate = new Date(data.punch_in);
-                setSelectedWeek(getStartOfWeek(shiftDate));
+                const newWeekStart = getStartOfWeek(shiftDate);
+                setSelectedWeek(newWeekStart);
                 
-                fetchShifts();
                 setShowAddForm(false);
                 setNewShift({ employee_id: '', punch_in: '', punch_out: '' });
+                // fetchShifts will be called by useEffect when selectedWeek changes
             } else {
                 const error = await response.json();
                 console.error('Error response from server:', error);
