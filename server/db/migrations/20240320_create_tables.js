@@ -5,6 +5,7 @@ export function up(knex) {
       table.string('code', 4).notNullable().unique();
       table.string('first_name', 50).notNullable();
       table.string('last_name', 50).notNullable();
+      table.string('title', 50).notNullable();
     })
     .createTable('shifts', (table) => {
       table.increments('id').primary();

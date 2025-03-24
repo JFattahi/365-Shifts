@@ -36,10 +36,10 @@ export async function seed(knex) {
 
   // Insert employees
   await knex('employees').insert([
-    { id: 1, code: '1111', first_name: 'Ahmad', last_name: 'Karimi' },
-    { id: 2, code: '2222', first_name: 'Luna', last_name: 'Castillo' },
-    { id: 3, code: '3333', first_name: 'Theo', last_name: 'Everest' },
-    { id: 4, code: '4444', first_name: 'Anna', last_name: 'Miller' },
+    { id: 1, code: '1111', first_name: 'Ahmad', last_name: 'Karimi', title: 'Developer' },
+    { id: 2, code: '2222', first_name: 'Luna', last_name: 'Castillo', title: 'Developer' },
+    { id: 3, code: '3333', first_name: 'Theo', last_name: 'Everest', title: 'Developer' },
+    { id: 4, code: '4444', first_name: 'Anna', last_name: 'Miller', title: 'Developer' },
   ]);
 
   // Insert shifts

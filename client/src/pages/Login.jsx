@@ -6,6 +6,7 @@ function Login() {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [isAdminLogin, setIsAdminLogin] = useState(false);
     const navigate = useNavigate();
 
     const handleSubmit = async (e) => {
@@ -16,12 +17,16 @@ function Login() {
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ username, password }),
+                body: JSON.stringify({ 
+                    username, 
+                    password,
+                    isAdmin: isAdminLogin 
+                }),
             });
 
             const data = await response.json();
             if (data.success) {
-                navigate('/punch');
+                navigate(isAdminLogin ? '/admin' : '/punch');
             } else {
                 setError('Invalid credentials');
             }
@@ -34,6 +39,19 @@ function Login() {
         <div className="login-container">
             <form onSubmit={handleSubmit}>
                 <h2>Login</h2>
+                <div className="toggle-container">
+                    <label className="toggle">
+                        <input
+                            type="checkbox"
+                            checked={isAdminLogin}
+                            onChange={(e) => setIsAdminLogin(e.target.checked)}
+                        />
+                        <span className="slider"></span>
+                    </label>
+                    <span className="toggle-label">
+                        {isAdminLogin ? 'Admin Page' : 'Clock In/Out'}
+                    </span>
+                </div>
                 {error && <p className="error">{error}</p>}
                 <div>
                     <label>Username:</label>

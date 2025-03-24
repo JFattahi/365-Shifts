@@ -9,7 +9,7 @@ dotenv.config();
 const app = express();
 
 // Middleware
-app.use(cors()); // Simplified CORS - allows all origins
+app.use(cors()); // This allows all origins
 app.use(express.json());
 
 // Add a test route
