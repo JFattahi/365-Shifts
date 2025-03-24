@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import './ShiftsManager.scss';
+import ShiftMonthView from './ShiftMonthView';
+import ShiftYearView from './ShiftYearView';
+import ShiftEditor from './ShiftEditor';
 
 function ShiftsManager() {
     const [shifts, setShifts] = useState([]);
@@ -13,6 +16,10 @@ function ShiftsManager() {
         punch_in: '',
         punch_out: ''
     });
+    const [viewMode, setViewMode] = useState('week'); // 'week', 'month', or 'year'
+    const [selectedMonth, setSelectedMonth] = useState(new Date());
+    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+    const [shiftsToEdit, setShiftsToEdit] = useState(null);
 
     // Get start of week date
     function getStartOfWeek(date) {
@@ -45,23 +52,30 @@ function ShiftsManager() {
 
     const fetchShifts = async () => {
         try {
-            const endDate = new Date(selectedWeek);
-            endDate.setDate(endDate.getDate() + 6);
-            endDate.setHours(23, 59, 59, 999); // Set to end of day
-            
-            console.log('Fetching shifts between:', {
-                start: selectedWeek.toISOString(),
-                end: endDate.toISOString()
-            });
-            
-            let url = `http://localhost:8080/api/shifts?start=${selectedWeek.toISOString()}&end=${endDate.toISOString()}`;
+            let startDate, endDate;
+
+            switch(viewMode) {
+                case 'month':
+                    startDate = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1);
+                    endDate = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 0);
+                    break;
+                case 'year':
+                    startDate = new Date(selectedYear, 0, 1);
+                    endDate = new Date(selectedYear, 11, 31);
+                    break;
+                default: // week view
+                    startDate = selectedWeek;
+                    endDate = new Date(selectedWeek);
+                    endDate.setDate(endDate.getDate() + 6);
+            }
+
+            let url = `http://localhost:8080/api/shifts?start=${startDate.toISOString()}&end=${endDate.toISOString()}`;
             if (selectedEmployee !== 'all') {
                 url += `&employee_id=${selectedEmployee}`;
             }
             
             const response = await fetch(url);
             const data = await response.json();
-            console.log('Fetched shifts:', data);
             setShifts(data);
         } catch (error) {
             console.error('Error fetching shifts:', error);
@@ -70,17 +84,39 @@ function ShiftsManager() {
 
     const handleShiftUpdate = async (shiftId, updates) => {
         try {
+            const formatToUTC = (dateString) => {
+                // Create a date object treating the input as Halifax time
+                const [datePart, timePart] = dateString.split('T');
+                const [year, month, day] = datePart.split('-');
+                const [hours, minutes] = timePart.split(':');
+                
+                // Create date in UTC, treating the input time as Halifax time
+                const date = new Date(Date.UTC(
+                    parseInt(year),
+                    parseInt(month) - 1,
+                    parseInt(day),
+                    parseInt(hours),
+                    parseInt(minutes)
+                ));
+                
+                return date.toISOString();
+            };
+
             const response = await fetch(`http://localhost:8080/api/shifts/${shiftId}`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(updates),
+                body: JSON.stringify({
+                    punch_in: formatToUTC(updates.punch_in),
+                    punch_out: formatToUTC(updates.punch_out)
+                }),
             });
             
             if (response.ok) {
                 fetchShifts();
                 setEditingShift(null);
+                setShiftsToEdit(null);
             }
         } catch (error) {
             console.error('Error updating shift:', error);
@@ -151,33 +187,123 @@ function ShiftsManager() {
         return diff.toFixed(2); // Return hours with 2 decimal places
     };
 
+    const handleEditShifts = (shifts) => {
+        setShiftsToEdit(shifts);
+    };
+
+    const handleCloseEditor = () => {
+        setShiftsToEdit(null);
+        fetchShifts();
+    };
+
+    const handleEditFromModal = (shift) => {
+        setEditingShift(shift);
+        setShiftsToEdit(null); // Close the editor modal
+        setViewMode('week'); // Switch to week view
+        const shiftDate = new Date(shift.punch_in);
+        setSelectedWeek(getStartOfWeek(shiftDate)); // Set the week to show the shift being edited
+    };
+
+    const toHalifaxTime = (date) => {
+        return new Date(date).toLocaleString('en-CA', {
+            timeZone: 'America/Halifax',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        });
+    };
+
+    const formatToLocalDateTime = (date) => {
+        const halifaxDate = toHalifaxTime(date);
+        // Convert "DD/MM/YYYY, HH:mm" to "YYYY-MM-DDTHH:mm"
+        const [datePart, timePart] = halifaxDate.split(', ');
+        const [month, day, year] = datePart.split('/');
+        return `${year}-${month}-${day}T${timePart}`;
+    };
+
+    const formatForInput = (dateString) => {
+        // Create a date object in the Halifax timezone
+        const date = new Date(dateString);
+        const halifaxDate = new Date(date.toLocaleString('en-US', { timeZone: 'America/Halifax' }));
+        
+        // Format the date to YYYY-MM-DDTHH:mm
+        const year = halifaxDate.getFullYear();
+        const month = String(halifaxDate.getMonth() + 1).padStart(2, '0');
+        const day = String(halifaxDate.getDate()).padStart(2, '0');
+        const hours = String(halifaxDate.getHours()).padStart(2, '0');
+        const minutes = String(halifaxDate.getMinutes()).padStart(2, '0');
+
+        return `${year}-${month}-${day}T${hours}:${minutes}`;
+    };
+
     return (
         <div className="shifts-manager">
             <div className="controls">
-                <div className="week-selector">
-                    <button 
-                        onClick={() => {
-                            const newDate = new Date(selectedWeek);
-                            newDate.setDate(newDate.getDate() - 7);
-                            setSelectedWeek(newDate);
-                        }}
+                <div className="view-selector">
+                    <select 
+                        value={viewMode} 
+                        onChange={(e) => setViewMode(e.target.value)}
                     >
-                        Previous Week
-                    </button>
-                    <span>
-                        Week of {formatDate(selectedWeek)}
-                    </span>
-                    <button 
-                        onClick={() => {
-                            const newDate = new Date(selectedWeek);
-                            newDate.setDate(newDate.getDate() + 7);
-                            setSelectedWeek(newDate);
-                        }}
-                    >
-                        Next Week
-                    </button>
+                        <option value="week">Week View</option>
+                        <option value="month">Month View</option>
+                        <option value="year">Year View</option>
+                    </select>
                 </div>
-                
+
+                {viewMode === 'week' && (
+                    <div className="week-selector">
+                        <button 
+                            onClick={() => {
+                                const newDate = new Date(selectedWeek);
+                                newDate.setDate(newDate.getDate() - 7);
+                                setSelectedWeek(newDate);
+                            }}
+                        >
+                            Previous Week
+                        </button>
+                        <span>
+                            Week of {formatDate(selectedWeek)}
+                        </span>
+                        <button 
+                            onClick={() => {
+                                const newDate = new Date(selectedWeek);
+                                newDate.setDate(newDate.getDate() + 7);
+                                setSelectedWeek(newDate);
+                            }}
+                        >
+                            Next Week
+                        </button>
+                    </div>
+                )}
+
+                {viewMode === 'month' && (
+                    <div className="month-selector">
+                        <input
+                            type="month"
+                            value={`${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`}
+                            onChange={(e) => setSelectedMonth(new Date(e.target.value))}
+                        />
+                    </div>
+                )}
+
+                {viewMode === 'year' && (
+                    <div className="year-selector">
+                        <select
+                            value={selectedYear}
+                            onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                        >
+                            {Array.from({ length: 10 }, (_, i) => 
+                                new Date().getFullYear() - 5 + i
+                            ).map(year => (
+                                <option key={year} value={year}>{year}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+
                 <select 
                     value={selectedEmployee} 
                     onChange={(e) => setSelectedEmployee(e.target.value)}
@@ -243,64 +369,92 @@ function ShiftsManager() {
                 </div>
             )}
 
-            <div className="shifts-grid">
-                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, index) => (
-                    <div key={day} className="day-column">
-                        <h3>{day}</h3>
-                        {shifts
-                            .filter(shift => new Date(shift.punch_in).getDay() === (index + 1) % 7)
-                            .map(shift => (
-                                <div key={shift.id} className="shift-card">
-                                    {editingShift?.id === shift.id ? (
-                                        <div className="shift-edit">
-                                            <input
-                                                type="datetime-local"
-                                                defaultValue={shift.punch_in.slice(0, 16)}
-                                                onChange={(e) => {
-                                                    setEditingShift({
-                                                        ...editingShift,
-                                                        punch_in: e.target.value
-                                                    });
-                                                }}
-                                            />
-                                            <input
-                                                type="datetime-local"
-                                                defaultValue={shift.punch_out.slice(0, 16)}
-                                                onChange={(e) => {
-                                                    setEditingShift({
-                                                        ...editingShift,
-                                                        punch_out: e.target.value
-                                                    });
-                                                }}
-                                            />
-                                            <button onClick={() => handleShiftUpdate(shift.id, editingShift)}>
-                                                Save
-                                            </button>
-                                            <button onClick={() => setEditingShift(null)}>
-                                                Cancel
-                                            </button>
-                                        </div>
-                                    ) : (
-                                        <>
-                                            <p>{shift.employee_name}</p>
-                                            <p>In: {new Date(shift.punch_in).toLocaleTimeString('en-GB')}</p>
-                                            <p>Out: {new Date(shift.punch_out).toLocaleTimeString('en-GB')}</p>
-                                            <p>Duration: {calculateDuration(shift.punch_in, shift.punch_out)} hours</p>
-                                            <div className="actions">
-                                                <button onClick={() => setEditingShift(shift)}>
-                                                    Edit
+            {viewMode === 'week' && (
+                <div className="shifts-grid">
+                    {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, index) => (
+                        <div key={day} className="day-column">
+                            <h3>{day}</h3>
+                            {shifts
+                                .filter(shift => new Date(shift.punch_in).getDay() === (index + 1) % 7)
+                                .map(shift => (
+                                    <div key={shift.id} className="shift-card">
+                                        {editingShift?.id === shift.id ? (
+                                            <div className="shift-edit">
+                                                <input
+                                                    type="datetime-local"
+                                                    defaultValue={formatForInput(shift.punch_in)}
+                                                    onChange={(e) => {
+                                                        setEditingShift({
+                                                            ...editingShift,
+                                                            punch_in: e.target.value
+                                                        });
+                                                    }}
+                                                />
+                                                <input
+                                                    type="datetime-local"
+                                                    defaultValue={formatForInput(shift.punch_out)}
+                                                    onChange={(e) => {
+                                                        setEditingShift({
+                                                            ...editingShift,
+                                                            punch_out: e.target.value
+                                                        });
+                                                    }}
+                                                />
+                                                <button onClick={() => handleShiftUpdate(shift.id, editingShift)}>
+                                                    Save
                                                 </button>
-                                                <button onClick={() => handleShiftDelete(shift.id)}>
-                                                    Delete
+                                                <button onClick={() => setEditingShift(null)}>
+                                                    Cancel
                                                 </button>
                                             </div>
-                                        </>
-                                    )}
-                                </div>
-                            ))}
-                    </div>
-                ))}
-            </div>
+                                        ) : (
+                                            <>
+                                                <p>{shift.employee_name}</p>
+                                                <p>In: {new Date(shift.punch_in).toLocaleTimeString('en-GB', { timeZone: 'America/Halifax' })}</p>
+                                                <p>Out: {new Date(shift.punch_out).toLocaleTimeString('en-GB', { timeZone: 'America/Halifax' })}</p>
+                                                <p>Duration: {calculateDuration(shift.punch_in, shift.punch_out)} hours</p>
+                                                <div className="actions">
+                                                    <button onClick={() => setEditingShift(shift)}>
+                                                        Edit
+                                                    </button>
+                                                    <button onClick={() => handleShiftDelete(shift.id)}>
+                                                        Delete
+                                                    </button>
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                ))}
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {viewMode === 'month' && (
+                <ShiftMonthView 
+                    shifts={shifts}
+                    month={selectedMonth.getMonth()}
+                    year={selectedMonth.getFullYear()}
+                    onEditShift={handleEditShifts}
+                />
+            )}
+
+            {viewMode === 'year' && (
+                <ShiftYearView 
+                    shifts={shifts}
+                    year={selectedYear}
+                    onEditShift={handleEditShifts}
+                />
+            )}
+
+            {shiftsToEdit && (
+                <ShiftEditor 
+                    shifts={shiftsToEdit}
+                    onClose={handleCloseEditor}
+                    onUpdate={handleEditFromModal}
+                    onDelete={handleShiftDelete}
+                />
+            )}
         </div>
     );
 }
