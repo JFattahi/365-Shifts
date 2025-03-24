@@ -21,6 +21,53 @@ function ShiftsManager() {
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
     const [shiftsToEdit, setShiftsToEdit] = useState(null);
 
+    // First, let's add these timezone utility functions at the top of the component
+    const timezoneUtils = {
+        // Convert UTC date to Halifax time for display
+        toHalifaxTime: (date) => {
+            return new Date(date).toLocaleString('en-CA', {
+                timeZone: 'America/Halifax',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            });
+        },
+
+        // Format date for datetime-local input (Halifax time)
+        formatForInput: (dateString) => {
+            const date = new Date(dateString);
+            return date.toLocaleString('en-CA', {
+                timeZone: 'America/Halifax',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            }).replace(', ', 'T');
+        },
+
+        // Convert local input time to UTC for server
+        formatToUTC: (dateString) => {
+            // Create a date object treating the input as Halifax time
+            const [datePart, timePart] = dateString.split('T');
+            const [year, month, day] = datePart.split('-');
+            const [hours, minutes] = timePart.split(':');
+            
+            // Create date in UTC, treating the input time as Halifax time
+            return new Date(Date.UTC(
+                parseInt(year),
+                parseInt(month) - 1,
+                parseInt(day),
+                parseInt(hours),
+                parseInt(minutes)
+            )).toISOString();
+        }
+    };
+
     // Get start of week date
     function getStartOfWeek(date) {
         const d = new Date(date);
@@ -84,32 +131,14 @@ function ShiftsManager() {
 
     const handleShiftUpdate = async (shiftId, updates) => {
         try {
-            const formatToUTC = (dateString) => {
-                // Create a date object treating the input as Halifax time
-                const [datePart, timePart] = dateString.split('T');
-                const [year, month, day] = datePart.split('-');
-                const [hours, minutes] = timePart.split(':');
-                
-                // Create date in UTC, treating the input time as Halifax time
-                const date = new Date(Date.UTC(
-                    parseInt(year),
-                    parseInt(month) - 1,
-                    parseInt(day),
-                    parseInt(hours),
-                    parseInt(minutes)
-                ));
-                
-                return date.toISOString();
-            };
-
             const response = await fetch(`http://localhost:8080/api/shifts/${shiftId}`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    punch_in: formatToUTC(updates.punch_in),
-                    punch_out: formatToUTC(updates.punch_out)
+                    punch_in: timezoneUtils.formatToUTC(updates.punch_in),
+                    punch_out: timezoneUtils.formatToUTC(updates.punch_out)
                 }),
             });
             
@@ -139,15 +168,11 @@ function ShiftsManager() {
     const handleAddShift = async (e) => {
         e.preventDefault();
         try {
-            console.log('Form data before processing:', newShift);
-
             const shiftData = {
                 employee_id: parseInt(newShift.employee_id),
-                punch_in: new Date(newShift.punch_in).toISOString(),
-                punch_out: new Date(newShift.punch_out).toISOString()
+                punch_in: timezoneUtils.formatToUTC(newShift.punch_in),
+                punch_out: timezoneUtils.formatToUTC(newShift.punch_out)
             };
-
-            console.log('Data being sent to server:', shiftData);
 
             const response = await fetch('http://localhost:8080/api/shifts', {
                 method: 'POST',
@@ -157,23 +182,14 @@ function ShiftsManager() {
                 body: JSON.stringify(shiftData),
             });
             
-            console.log('Server response status:', response.status);
-
             if (response.ok) {
                 const data = await response.json();
-                console.log('Server response data:', data);
-                
-                // Update selected week to show the new shift
                 const shiftDate = new Date(data.punch_in);
                 const newWeekStart = getStartOfWeek(shiftDate);
                 setSelectedWeek(newWeekStart);
-                
                 setShowAddForm(false);
                 setNewShift({ employee_id: '', punch_in: '', punch_out: '' });
-                // fetchShifts will be called by useEffect when selectedWeek changes
-            } else {
-                const error = await response.json();
-                console.error('Error response from server:', error);
+                fetchShifts();
             }
         } catch (error) {
             console.error('Error in handleAddShift:', error);
@@ -204,39 +220,12 @@ function ShiftsManager() {
         setSelectedWeek(getStartOfWeek(shiftDate)); // Set the week to show the shift being edited
     };
 
-    const toHalifaxTime = (date) => {
-        return new Date(date).toLocaleString('en-CA', {
-            timeZone: 'America/Halifax',
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false
-        });
-    };
-
     const formatToLocalDateTime = (date) => {
-        const halifaxDate = toHalifaxTime(date);
+        const halifaxDate = timezoneUtils.toHalifaxTime(date);
         // Convert "DD/MM/YYYY, HH:mm" to "YYYY-MM-DDTHH:mm"
         const [datePart, timePart] = halifaxDate.split(', ');
         const [month, day, year] = datePart.split('/');
         return `${year}-${month}-${day}T${timePart}`;
-    };
-
-    const formatForInput = (dateString) => {
-        // Create a date object in the Halifax timezone
-        const date = new Date(dateString);
-        const halifaxDate = new Date(date.toLocaleString('en-US', { timeZone: 'America/Halifax' }));
-        
-        // Format the date to YYYY-MM-DDTHH:mm
-        const year = halifaxDate.getFullYear();
-        const month = String(halifaxDate.getMonth() + 1).padStart(2, '0');
-        const day = String(halifaxDate.getDate()).padStart(2, '0');
-        const hours = String(halifaxDate.getHours()).padStart(2, '0');
-        const minutes = String(halifaxDate.getMinutes()).padStart(2, '0');
-
-        return `${year}-${month}-${day}T${hours}:${minutes}`;
     };
 
     return (
@@ -382,7 +371,7 @@ function ShiftsManager() {
                                             <div className="shift-edit">
                                                 <input
                                                     type="datetime-local"
-                                                    defaultValue={formatForInput(shift.punch_in)}
+                                                    defaultValue={timezoneUtils.formatForInput(shift.punch_in)}
                                                     onChange={(e) => {
                                                         setEditingShift({
                                                             ...editingShift,
@@ -392,7 +381,7 @@ function ShiftsManager() {
                                                 />
                                                 <input
                                                     type="datetime-local"
-                                                    defaultValue={formatForInput(shift.punch_out)}
+                                                    defaultValue={timezoneUtils.formatForInput(shift.punch_out)}
                                                     onChange={(e) => {
                                                         setEditingShift({
                                                             ...editingShift,
